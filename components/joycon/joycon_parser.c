@@ -1,4 +1,5 @@
 #include "joycon_parser.h"
+#include "joycon_calibration.h"
 #include "joycon_types.h"
 #include "esp_log.h"
 #include <string.h>
@@ -6,25 +7,15 @@
 
 #define TAG "joycon_parser"
 
-// Joystick calibration — factory center/min/max from SPI flash (0x603D, 0x6050).
-// These are reasonable defaults; real calibration data should be read via
-// subcommand 0x10 (READ_SPI) at startup.
-#define STICK_CENTER 2048
-#define STICK_MIN    400
-#define STICK_MAX    3700
+static joycon_cal_t s_cal = {
+    .left  = {2048, 2048, 3700, 3700, 400, 400},
+    .right = {2048, 2048, 3700, 3700, 400, 400},
+    .valid = false,
+};
 
-static float calibrate_axis(uint16_t raw)
+void joycon_parser_set_cal(const joycon_cal_t *cal)
 {
-    float norm;
-    if (raw >= STICK_CENTER) {
-        norm = (float)(raw - STICK_CENTER) / (STICK_MAX - STICK_CENTER);
-    } else {
-        norm = (float)(raw - STICK_CENTER) / (STICK_CENTER - STICK_MIN);
-    }
-    // clamp to [-1, 1]
-    if (norm >  1.0f) norm =  1.0f;
-    if (norm < -1.0f) norm = -1.0f;
-    return norm;
+    s_cal = *cal;
 }
 
 // Decode a 12-bit axis pair packed as 3 bytes little-endian (Joy-Con stick format)
@@ -88,10 +79,10 @@ static bool parse_full_report(const uint8_t *data, uint16_t len, joycon_state_t 
     uint16_t lx, ly, rx, ry;
     decode_stick(&p[5], &lx, &ly);
     decode_stick(&p[8], &rx, &ry);
-    out->left_x  = calibrate_axis(lx);
-    out->left_y  = calibrate_axis(ly);
-    out->right_x = calibrate_axis(rx);
-    out->right_y = calibrate_axis(ry);
+    out->left_x  = joycon_cal_axis(lx, s_cal.left.x_center,  s_cal.left.x_min,  s_cal.left.x_max);
+    out->left_y  = joycon_cal_axis(ly, s_cal.left.y_center,  s_cal.left.y_min,  s_cal.left.y_max);
+    out->right_x = joycon_cal_axis(rx, s_cal.right.x_center, s_cal.right.x_min, s_cal.right.x_max);
+    out->right_y = joycon_cal_axis(ry, s_cal.right.y_center, s_cal.right.y_min, s_cal.right.y_max);
 
     // IMU — first of three samples, 16-bit little-endian signed integers
     // Gyro: 0.06103°/s per LSB at 2000dps range

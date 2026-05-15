@@ -23,4 +23,10 @@ esp_err_t vesc_set_handbrake(uint8_t can_id, float current_a, bool is_slave);
 esp_err_t vesc_set_current_zero(uint8_t can_id, bool is_slave);
 
 // ─── Telemetry ────────────────────────────────────────────────────────────────
+
+// Read telemetry from master VESC (direct UART).
 esp_err_t vesc_get_values(vesc_values_t *out);
+
+// Read telemetry from slave VESC via CAN forwarding.
+// The master forwards the request and returns the slave's response on UART.
+esp_err_t vesc_get_values_slave(uint8_t can_id, vesc_values_t *out);

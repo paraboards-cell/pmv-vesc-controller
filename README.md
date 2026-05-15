@@ -74,12 +74,13 @@ Hold the **sync button** on the Joy-Con (small button on the rail edge) until th
 
 | Input | Action |
 |-------|--------|
-| Right stick Y | Throttle (push forward = move forward) |
-| Right stick X | Steer (differential mix left/right) |
-| ZR (held) | Dead-man switch — release to coast |
-| ZL (held) + throttle | Reverse |
+| Right stick Y | Throttle — push forward = forward, pull back = reverse |
+| Right stick X | Steer (differential tank mix left/right) |
+| ZL | Brake (regenerative) |
 | Minus button | Toggle parking brake |
 | Plus button | Cycle speed mode (Walk → Cruise → Sport) |
+
+Stick in deadband (center) → current zero → vehicle coasts to a stop naturally.
 
 ## Speed modes
 

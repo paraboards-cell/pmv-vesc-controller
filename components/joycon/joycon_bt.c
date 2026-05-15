@@ -1,5 +1,6 @@
 #include "joycon_bt.h"
 #include "joycon_parser.h"
+#include "joycon_calibration.h"
 #include "esp_hidh.h"
 #include "esp_hid_common.h"
 #include "esp_bt.h"
@@ -26,6 +27,7 @@ static esp_hidh_dev_t  *s_dev       = NULL;
 static SemaphoreHandle_t s_state_mx = NULL;
 static joycon_state_t    s_state    = {0};
 static uint8_t           s_timer    = 0;
+static joycon_cal_t      s_cal      = {0};
 
 // ─── Subcommand helpers ───────────────────────────────────────────────────────
 
@@ -86,6 +88,11 @@ static void run_handshake(void)
     // Set player light 1 to identify which controller this is
     arg = 0x01;
     joycon_send_subcommand(JC_SUBCMD_SET_PLAYER_LIGHTS, &arg, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // Read factory stick calibration from SPI flash
+    joycon_cal_read(&s_cal, 300);
+    joycon_parser_set_cal(&s_cal);
 
     ESP_LOGI(TAG, "handshake complete — expecting 0x30 reports");
 }
@@ -115,6 +122,12 @@ static void hidh_callback(void *handler_arg, esp_event_base_t base,
     }
     case ESP_HIDH_INPUT_EVENT: {
         if (data->input.length < 1) break;
+
+        // 0x21 = subcommand reply (used during calibration SPI reads)
+        if (data->input.data[0] == 0x21) {
+            joycon_cal_on_reply(data->input.data, data->input.length);
+            break;
+        }
 
         joycon_state_t new_state = {0};
         bool parsed = joycon_parse_report(data->input.data, data->input.length, &new_state);

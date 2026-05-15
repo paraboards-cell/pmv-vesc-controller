@@ -75,6 +75,24 @@ esp_err_t vesc_set_current_zero(uint8_t can_id, bool is_slave)
     return vesc_set_current(can_id, 0.0f, is_slave);
 }
 
+static esp_err_t read_values_response(vesc_values_t *out)
+{
+    uint8_t rx[BUF_SIZE];
+    int rx_len = uart_read_bytes(s_port, rx, sizeof(rx),
+                                 pdMS_TO_TICKS(RX_TIMEOUT_MS));
+    if (rx_len < 7) {
+        ESP_LOGW(TAG, "get_values: short response (%d bytes)", rx_len);
+        return ESP_ERR_TIMEOUT;
+    }
+    if (rx[0] != 0x02) return ESP_ERR_INVALID_RESPONSE;
+    uint8_t payload_len = rx[1];
+    if (rx_len < payload_len + 4) return ESP_ERR_INVALID_SIZE;
+    if (!vesc_response_parse_values(&rx[2], payload_len, out)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
 esp_err_t vesc_get_values(vesc_values_t *out)
 {
     uint8_t req[1];
@@ -84,22 +102,21 @@ esp_err_t vesc_get_values(vesc_values_t *out)
     uart_flush_input(s_port);
     esp_err_t err = send_packet(req, req_len);
     if (err != ESP_OK) return err;
+    return read_values_response(out);
+}
 
-    uint8_t rx[BUF_SIZE];
-    int rx_len = uart_read_bytes(s_port, rx, sizeof(rx),
-                                 pdMS_TO_TICKS(RX_TIMEOUT_MS));
-    if (rx_len < 7) {
-        ESP_LOGW(TAG, "get_values: short response (%d bytes)", rx_len);
-        return ESP_ERR_TIMEOUT;
-    }
+esp_err_t vesc_get_values_slave(uint8_t can_id, vesc_values_t *out)
+{
+    uint8_t inner[1];
+    uint8_t inner_len;
+    vesc_payload_get_values(inner, &inner_len);
 
-    // Strip framing: start byte, length byte, ..., crc x2, end byte
-    if (rx[0] != 0x02) return ESP_ERR_INVALID_RESPONSE;
-    uint8_t payload_len = rx[1];
-    if (rx_len < payload_len + 4) return ESP_ERR_INVALID_SIZE;
+    uint8_t fwd[64];
+    uint8_t fwd_len;
+    vesc_payload_forward_can(fwd, &fwd_len, can_id, inner, inner_len);
 
-    if (!vesc_response_parse_values(&rx[2], payload_len, out)) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    return ESP_OK;
+    uart_flush_input(s_port);
+    esp_err_t err = send_packet(fwd, fwd_len);
+    if (err != ESP_OK) return err;
+    return read_values_response(out);
 }

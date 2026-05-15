@@ -67,19 +67,46 @@ static void on_joycon_event(void *arg, esp_event_base_t base,
 
 // ─── Telemetry task ───────────────────────────────────────────────────────────
 
+static void log_vesc(const char *label, const vesc_values_t *v)
+{
+    ESP_LOGI(TAG, "%-6s | RPM:%6ld  I:%5.1fA  V:%4.1fV  T_fet:%4.0fC  T_mot:%4.0fC  fault:%u",
+             label, (long)v->rpm, v->avg_motor_current, v->input_voltage,
+             v->temp_mosfet, v->temp_motor, v->fault_code);
+}
+
 static void telemetry_task(void *arg)
 {
-    vesc_values_t v = {0};
+    vesc_values_t left = {0}, right = {0};
     while (1) {
-        if (vesc_get_values(&v) == ESP_OK) {
-            ESP_LOGI(TAG, "VESC | RPM:%ld  I:%.1fA  V:%.1fV  T_fet:%.0f°C  fault:%u",
-                     (long)v.rpm, v.avg_motor_current, v.input_voltage,
-                     v.temp_mosfet, v.fault_code);
-            if (v.fault_code != 0) {
-                ESP_LOGE(TAG, "VESC FAULT %u — E-STOP", v.fault_code);
-                drive_estop();
+        bool fault = false;
+
+        if (vesc_get_values(&left) == ESP_OK) {
+            log_vesc("LEFT", &left);
+            if (left.fault_code != 0) {
+                ESP_LOGE(TAG, "LEFT VESC FAULT %u", left.fault_code);
+                fault = true;
             }
+        } else {
+            ESP_LOGW(TAG, "LEFT VESC telemetry timeout");
         }
+
+        // Small gap between requests — master needs time to process
+        vTaskDelay(pdMS_TO_TICKS(20));
+
+        if (vesc_get_values_slave(VESC_SLAVE_CAN_ID, &right) == ESP_OK) {
+            log_vesc("RIGHT", &right);
+            if (right.fault_code != 0) {
+                ESP_LOGE(TAG, "RIGHT VESC FAULT %u", right.fault_code);
+                fault = true;
+            }
+        } else {
+            ESP_LOGW(TAG, "RIGHT VESC telemetry timeout");
+        }
+
+        if (fault) {
+            drive_estop();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(TELEMETRY_POLL_MS));
     }
 }

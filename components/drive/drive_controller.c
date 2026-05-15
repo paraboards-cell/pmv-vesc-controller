@@ -97,22 +97,37 @@ drive_output_t drive_update(const joycon_state_t *input)
     }
     last_plus = input->btn_plus;
 
-    // ZR = throttle (forward), ZL = brake/reverse
-    // Use right stick Y for throttle (intuitive for a vehicle controller)
-    // Use right stick X (or left stick X) for steering
-    float raw_throttle = -input->right_y;  // invert: push forward = positive
+    // Right stick Y = throttle: push forward (+y) = forward, pull back = reverse.
+    // Right stick X = steer. ZL = dedicated brake.
+    // No dead-man: stick in deadband → current zero → vehicle coasts naturally.
+    float raw_throttle = -input->right_y;  // invert: forward stick = positive throttle
     float raw_steer    =  input->right_x;
-
-    // ZL pressed = reverse mode: invert throttle
-    if (input->btn_zl && raw_throttle > 0) raw_throttle = -raw_throttle;
-
-    // ZR as dead-man: release ZR = coasting stop
-    bool dead_man = input->btn_zr;
 
     float throttle = apply_expo(apply_deadband(raw_throttle, THROTTLE_DEADBAND), THROTTLE_EXPO);
     float steer    = apply_expo(apply_deadband(raw_steer,    STEER_DEADBAND),    STEER_EXPO);
 
-    if (!dead_man) throttle = 0.0f;  // dead-man released — coast
+    // ZL = brake (regenerative). Overrides throttle.
+    if (input->btn_zl) {
+        vesc_set_current_brake(VESC_MASTER_ID,   MOTOR_BRAKE_CURRENT_A, false);
+        vesc_set_current_brake(VESC_SLAVE_CAN_ID, MOTOR_BRAKE_CURRENT_A, true);
+        out.state = DRIVE_STATE_BRAKING;
+        out.left_current_a  = 0.0f;
+        out.right_current_a = 0.0f;
+        out.mode  = s_mode;
+        castor_set(false);
+        out.castor_active = false;
+        return out;
+    }
+
+    // No stick input → zero current → coast
+    if (fabsf(throttle) < 0.01f && fabsf(steer) < 0.01f) {
+        vesc_set_current_zero(VESC_MASTER_ID, false);
+        vesc_set_current_zero(VESC_SLAVE_CAN_ID, true);
+        castor_set(false);
+        out.state = DRIVE_STATE_STOPPED;
+        out.mode  = s_mode;
+        return out;
+    }
 
     float left_frac, right_frac;
     tank_mix(throttle, steer, &left_frac, &right_frac);
@@ -126,17 +141,9 @@ drive_output_t drive_update(const joycon_state_t *input)
     if (MOTOR_LEFT_INVERT)  left_a  = -left_a;
     if (MOTOR_RIGHT_INVERT) right_a = -right_a;
 
-    // Brake current when stick is near zero but ZR still held — regenerative
-    if (dead_man && fabsf(throttle) < 0.01f && fabsf(steer) < 0.01f) {
-        vesc_set_current_brake(VESC_MASTER_ID, MOTOR_BRAKE_CURRENT_A, false);
-        vesc_set_current_brake(VESC_SLAVE_CAN_ID, MOTOR_BRAKE_CURRENT_A, true);
-        out.state = DRIVE_STATE_BRAKING;
-    } else {
-        vesc_set_current(VESC_MASTER_ID, left_a,  false);
-        vesc_set_current(VESC_SLAVE_CAN_ID, right_a, true);
-        out.state = (fabsf(left_a) > 0.1f || fabsf(right_a) > 0.1f)
-                    ? DRIVE_STATE_RUNNING : DRIVE_STATE_STOPPED;
-    }
+    vesc_set_current(VESC_MASTER_ID,   left_a,  false);
+    vesc_set_current(VESC_SLAVE_CAN_ID, right_a, true);
+    out.state = DRIVE_STATE_RUNNING;
 
     // Castor logic: activate at low speed + high steer input
     // Speed check uses master VESC RPM (approximate — both motors similar speed)
