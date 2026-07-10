@@ -8,6 +8,9 @@
 > [`packages/database_client/tables.sql`](https://github.com/itsezlife/flutter-instagram-offline-first-clone/blob/main/packages/database_client/tables.sql)
 > as of 2026-07 — not assumed from the clone's README. Re-verify against your forked commit in Phase 0.
 
+> **Team execution:** the workstream split, ownership map, and merge plan for building this
+> concurrently with a team live in [`marketplace-team-split.md`](./marketplace-team-split.md).
+
 > **v3** reconciles two independent reviews of v2. Every accepted, corrected, and rejected
 > suggestion is logged with reasoning in the **Appendix — v3 reconciliation log** at the bottom.
 > Two review claims failed schema verification and are corrected inline (`images.post_id`, price
